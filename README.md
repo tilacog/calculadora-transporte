@@ -153,4 +153,6 @@ O executável estará em `target/release/calculadora`.
 
 ## Licença
 
-Este projeto é de código aberto. Consulte o arquivo LICENSE para detalhes.
+Este software é de domínio público e não possui restrições de uso. Consulte o arquivo `UNLICENSE` para detalhes completos.
+
+Este projeto utiliza a [Unlicense](https://unlicense.org/) para liberar completamente o código para domínio público.

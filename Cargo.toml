@@ -2,6 +2,9 @@
 name = "calculadora_pagamento"
 version = "0.1.0"
 edition = "2021"
+license = "Unlicense"
+description = "Uma calculadora de pagamento com aritmética de precisão fixa"
+authors = ["tilacog@gmail.com"]
 
 [dependencies]
 
