@@ -1,0 +1,14 @@
+[package]
+name = "calculadora_pagamento"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[[bin]]
+name = "calculadora"
+path = "src/main.rs"
+
+[lib]
+name = "calculadora"
+path = "src/lib.rs"
