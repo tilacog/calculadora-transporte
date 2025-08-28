@@ -7,6 +7,7 @@ description = "Uma calculadora de pagamento com aritmética de precisão fixa"
 authors = ["tilacog@gmail.com"]
 
 [dependencies]
+chrono = { version = "0.4", features = ["serde"] }
 
 [[bin]]
 name = "calculadora"
