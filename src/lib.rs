@@ -160,11 +160,18 @@ pub struct InformacaoCalendario {
 }
 
 #[derive(Debug, Clone)]
+pub struct Deducao {
+    pub valor: Money,
+    pub descricao: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResultadoCalculo {
     pub taxa_fixa: Money,
     pub taxa_transporte: Money,
     pub dias_trabalhados: i32,
     pub custo_transporte: Money,
+    pub deducoes: Vec<Deducao>,
     pub deducoes_total: Money,
     pub pagamento_final: Money,
     pub calendario: Option<InformacaoCalendario>,
@@ -174,9 +181,10 @@ pub fn calcular_valores(
     taxa_fixa: Money,
     taxa_transporte: Money,
     dias_trabalhados: i32,
-    deducoes_total: Money,
+    deducoes: Vec<Deducao>,
 ) -> ResultadoCalculo {
     let custo_transporte = taxa_transporte * dias_trabalhados * 2;
+    let deducoes_total = deducoes.iter().fold(Money::ZERO, |acc, d| acc + d.valor);
     let pagamento_final = taxa_fixa + custo_transporte - deducoes_total;
 
     ResultadoCalculo {
@@ -184,6 +192,7 @@ pub fn calcular_valores(
         taxa_transporte,
         dias_trabalhados,
         custo_transporte,
+        deducoes,
         deducoes_total,
         pagamento_final,
         calendario: None,
@@ -196,12 +205,13 @@ pub fn calcular_valores_com_calendario(
     mes: u32,
     ano: i32,
     feriados_deduzidos: i32,
-    deducoes_total: Money,
+    deducoes: Vec<Deducao>,
 ) -> Result<ResultadoCalculo, String> {
     let dias_uteis_mes = contar_dias_uteis(mes, ano)?;
     let dias_trabalhados = (dias_uteis_mes - feriados_deduzidos).max(0);
 
     let custo_transporte = taxa_transporte * dias_trabalhados * 2;
+    let deducoes_total = deducoes.iter().fold(Money::ZERO, |acc, d| acc + d.valor);
     let pagamento_final = taxa_fixa + custo_transporte - deducoes_total;
 
     let calendario = InformacaoCalendario {
@@ -218,6 +228,7 @@ pub fn calcular_valores_com_calendario(
         taxa_transporte,
         dias_trabalhados,
         custo_transporte,
+        deducoes,
         deducoes_total,
         pagamento_final,
         calendario: Some(calendario),
@@ -302,6 +313,49 @@ pub fn obter_feriados() -> i32 {
     }
 }
 
+pub fn obter_deducoes() -> Vec<Deducao> {
+    let mut deducoes = Vec::new();
+
+    loop {
+        let prompt = if deducoes.is_empty() {
+            "Digite o valor da dedução (R$) ou deixe em branco para continuar:"
+        } else {
+            "Alguma outra dedução? (R$) ou deixe em branco para continuar:"
+        };
+
+        println!("{}", prompt);
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("Falha ao ler entrada");
+
+        let valor = match Money::parse(&input) {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Erro: Por favor, digite um valor numérico válido.");
+                continue;
+            }
+        };
+
+        if valor == Money::ZERO {
+            break;
+        }
+
+        println!("Descrição da dedução de R$ {}:", valor);
+        let mut descricao = String::new();
+        std::io::stdin()
+            .read_line(&mut descricao)
+            .expect("Falha ao ler entrada");
+
+        deducoes.push(Deducao {
+            valor,
+            descricao: descricao.trim().to_string(),
+        });
+    }
+
+    deducoes
+}
+
 pub fn calcular_pagamento() {
     println!("=== CALCULADORA DE PAGAMENTO ===\n");
 
@@ -309,11 +363,11 @@ pub fn calcular_pagamento() {
     let taxa_fixa = obter_valor_numerico("Digite a taxa fixa (R$):");
     let taxa_transporte = obter_valor_numerico("Digite a taxa de transporte por viagem (R$):");
 
-    // Nova funcionalidade: cálculo baseado em calendário
+    // Cálculo baseado em calendário
     let mes = obter_mes();
     let ano = obter_ano();
     let feriados = obter_feriados();
-    let deducoes_total = obter_valor_numerico("Digite o valor das deduções (R$):");
+    let deducoes = obter_deducoes();
 
     // Cálculo com calendário
     let resultado = match calcular_valores_com_calendario(
@@ -322,7 +376,7 @@ pub fn calcular_pagamento() {
         mes,
         ano,
         feriados,
-        deducoes_total,
+        deducoes,
     ) {
         Ok(resultado) => resultado,
         Err(erro) => {
@@ -363,8 +417,16 @@ pub fn calcular_pagamento() {
         resultado.dias_trabalhados, resultado.taxa_transporte
     );
 
-    if resultado.deducoes_total > Money::ZERO {
-        println!("Deduções: R$ {}", resultado.deducoes_total);
+    if !resultado.deducoes.is_empty() {
+        println!("\nDeduções:");
+        for deducao in &resultado.deducoes {
+            if deducao.descricao.is_empty() {
+                println!("  - R$ {}", deducao.valor);
+            } else {
+                println!("  - R$ {} ({})", deducao.valor, deducao.descricao);
+            }
+        }
+        println!("Total de deduções: R$ {}", resultado.deducoes_total);
     }
 
     println!("{}", "-".repeat(40));
@@ -396,7 +458,7 @@ mod tests {
             Money::from_reais(100),
             Money::from_reais(5),
             10,
-            Money::ZERO,
+            vec![],
         );
 
         assert_eq!(resultado.custo_transporte, Money::from_reais(100)); // 5 * 10 * 2
@@ -409,7 +471,10 @@ mod tests {
             Money::from_reais(150),
             Money::parse("7.50").unwrap(),
             8,
-            Money::from_reais(25),
+            vec![Deducao {
+                valor: Money::from_reais(25),
+                descricao: "adiantamento".to_string(),
+            }],
         );
 
         assert_eq!(resultado.custo_transporte, Money::from_reais(120)); // 7.50 * 8 * 2
@@ -417,8 +482,32 @@ mod tests {
     }
 
     #[test]
+    fn test_calculo_com_multiplas_deducoes() {
+        let resultado = calcular_valores(
+            Money::from_reais(150),
+            Money::parse("7.50").unwrap(),
+            8,
+            vec![
+                Deducao {
+                    valor: Money::from_reais(15),
+                    descricao: "adiantamento".to_string(),
+                },
+                Deducao {
+                    valor: Money::from_reais(10),
+                    descricao: "faltas".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(resultado.custo_transporte, Money::from_reais(120)); // 7.50 * 8 * 2
+        assert_eq!(resultado.deducoes_total, Money::from_reais(25)); // 15 + 10
+        assert_eq!(resultado.pagamento_final, Money::from_reais(245)); // 150 + 120 - 25
+        assert_eq!(resultado.deducoes.len(), 2);
+    }
+
+    #[test]
     fn test_valores_zero() {
-        let resultado = calcular_valores(Money::ZERO, Money::ZERO, 0, Money::ZERO);
+        let resultado = calcular_valores(Money::ZERO, Money::ZERO, 0, vec![]);
 
         assert_eq!(resultado.custo_transporte, Money::ZERO);
         assert_eq!(resultado.pagamento_final, Money::ZERO);
@@ -426,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_apenas_taxa_fixa() {
-        let resultado = calcular_valores(Money::from_reais(200), Money::ZERO, 5, Money::ZERO);
+        let resultado = calcular_valores(Money::from_reais(200), Money::ZERO, 5, vec![]);
 
         assert_eq!(resultado.custo_transporte, Money::ZERO);
         assert_eq!(resultado.pagamento_final, Money::from_reais(200));
@@ -434,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_apenas_transporte() {
-        let resultado = calcular_valores(Money::ZERO, Money::from_reais(10), 6, Money::ZERO);
+        let resultado = calcular_valores(Money::ZERO, Money::from_reais(10), 6, vec![]);
 
         assert_eq!(resultado.custo_transporte, Money::from_reais(120)); // 10 * 6 * 2
         assert_eq!(resultado.pagamento_final, Money::from_reais(120));
@@ -446,7 +535,10 @@ mod tests {
             Money::from_reais(50),
             Money::from_reais(5),
             3,
-            Money::from_reais(100),
+            vec![Deducao {
+                valor: Money::from_reais(100),
+                descricao: "grande dedução".to_string(),
+            }],
         );
 
         assert_eq!(resultado.custo_transporte, Money::from_reais(30)); // 5 * 3 * 2
@@ -459,7 +551,10 @@ mod tests {
             Money::parse("123.45").unwrap(),
             Money::parse("3.75").unwrap(),
             4,
-            Money::parse("15.50").unwrap(),
+            vec![Deducao {
+                valor: Money::parse("15.50").unwrap(),
+                descricao: "desconto".to_string(),
+            }],
         );
 
         assert_eq!(resultado.custo_transporte, Money::from_reais(30)); // 3.75 * 4 * 2
@@ -481,7 +576,10 @@ mod tests {
             Money::from_reais(100),
             Money::from_reais(5),
             2,
-            Money::from_reais(10),
+            vec![Deducao {
+                valor: Money::from_reais(10),
+                descricao: "teste".to_string(),
+            }],
         );
 
         // Verifica se os valores de entrada são preservados
@@ -541,7 +639,10 @@ mod tests {
             11, // Novembro
             2024,
             2, // 2 feriados
-            Money::from_reais(25),
+            vec![Deducao {
+                valor: Money::from_reais(25),
+                descricao: "adiantamento".to_string(),
+            }],
         )
         .unwrap();
 
@@ -572,7 +673,7 @@ mod tests {
             11, // Novembro
             2024,
             25, // Mais feriados que dias úteis
-            Money::ZERO,
+            vec![],
         )
         .unwrap();
 
@@ -590,7 +691,7 @@ mod tests {
             1, // Janeiro
             2024,
             0, // Sem feriados
-            Money::ZERO,
+            vec![],
         )
         .unwrap();
 
